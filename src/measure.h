@@ -1,0 +1,3 @@
+
+double readADC();
+void setupADC();

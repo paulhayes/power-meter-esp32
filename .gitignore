@@ -1,2 +1,5 @@
 .pio
 .vscode
+**/creds.h
+**/private_key.h
+**/cert.h

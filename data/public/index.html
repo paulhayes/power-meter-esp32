@@ -1,0 +1,34 @@
+<!DOCTYPE html> 
+<html>
+    <head>
+
+        <script>
+            const sleep = (milliseconds) => {
+                return new Promise(resolve => setTimeout(resolve, milliseconds))
+            };
+            const catchError = function(e){
+            }
+
+            
+
+            var init = async function(){
+                const powerField = document.getElementById("power");
+                while(true){
+                    
+                    let response = await fetch('/api/measurePower').catch(catchError);
+                    if (response.ok){
+                        let responseJSON = await response.json().catch(catchError);
+                        console.log(responseJSON);
+                        powerField.innerText = responseJSON.power.toFixed(2);
+
+                    }
+                    await sleep(500);
+                }
+            }
+            window.addEventListener("load",init);
+        </script>
+        <body>
+            Power <span id="power">..</span>W
+        </body>
+    </head>
+</html>

@@ -15,11 +15,11 @@
  */
 
 #include <Arduino.h>
-
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
 #include <driver/adc.h>
+#include <Wire.h>
 //#include "WiFi.h"
 
 #include <pb.h>
@@ -33,6 +33,10 @@
 #define VRef 3.3
 
 #define WHISTLEPUNK_SERVICE_UUID "555a0001-0aaa-467a-9538-01f0652c74e8"
+#define ads1110 0x48
+const double voltsToAmps = 7.706108759;
+const double voltsToAmpsOffset = -0.006816517411;
+
 BLECharacteristic* valueCharacteristic = NULL;
 
 bool deviceConnected = false;
@@ -85,6 +89,10 @@ class ConfigCallbacks: public BLECharacteristicCallbacks {
 
 void setup() {
   wait_for_serial();
+
+    Wire.begin();
+
+
   DEBUG_PRINTLN("");
   DEBUG_PRINTLN("");
   DEBUG_PRINTLN("Science Journal ESP32 Startup");
@@ -157,6 +165,7 @@ void setup() {
 }
 
 void loop() {
+  
   unsigned long currentMillis = millis();
   uint32_t sensorValue = 0;
 
@@ -185,9 +194,8 @@ void loop() {
       DEBUG_PRINT(" SensorValue: ");
       DEBUG_PRINTLN(sensorValue);
     }
-    long volts = map(sensorValue,0,4096,0,3300/2);
-    long amps = map(volts,0,1000,0,20000);
-     send_data(valueCharacteristic, millis(), amps );
+    double power = ReadADC();
+    send_data(valueCharacteristic, millis(), power );
      
   } else {
     if(currentMillis - previousMillis > interval) {
@@ -195,4 +203,39 @@ void loop() {
       DEBUG_PRINT("."); // just to let us know its alive via serial console
     }
   }
+}
+
+double amps = 0;
+double ReadADC()
+{
+  byte lowbyte=0, highbyte=0, configRegister=0;
+  long data;
+  double voltage;
+  double power;
+  
+  Wire.requestFrom(ads1110, 3);
+  while(Wire.available()) // ensure all the data comes in
+  {
+    highbyte = Wire.read(); // high byte * B11111111
+    lowbyte = Wire.read(); // low byte
+    configRegister = Wire.read();
+  }
+
+ data = lowbyte | (highbyte << 8) ;
+
+ Serial.print("Data=");
+ Serial.print(data, DEC);
+ Serial.print(", Voltage=");
+ voltage = data * 2.048 ;
+ voltage = voltage / 32768.0;
+ amps += 0.1*((voltage * voltsToAmps + voltsToAmpsOffset) - amps);
+ power = amps*240;
+ Serial.print(voltage, DEC);
+ Serial.print("v");
+ Serial.print(", current=");
+ Serial.print(amps);
+ Serial.print("A, power=");
+ Serial.print(power);
+ Serial.println("W");
+ return power;
 }

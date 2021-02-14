@@ -28,3 +28,4 @@ bool decode_pin(pb_istream_t *stream, const pb_field_t *field, void * *arg);
 void handle(uint8_t* data, int8_t length);
 
 #endif
+
