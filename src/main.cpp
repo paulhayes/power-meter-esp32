@@ -44,6 +44,9 @@
 #include <sstream>
 #include <string.h>
 #include <math.h>
+#include <ArduinoOTA.h>
+#include <ESPmDNS.h>
+#include <WiFiUdp.h>
 
 #include "measure.h"
 
@@ -84,6 +87,8 @@ void handleZeroRequest(HTTPRequest * req, HTTPResponse * res);
 void handleSPIFFS(HTTPRequest * req, HTTPResponse * res);
 void handlePowerSlopeRequest(HTTPRequest * req, HTTPResponse * res);
 void initSPIFFS();
+void setupOTA();
+void setupMDNS();
 
 CircularBuffer<double, 60> buffer;
 const int adcReadInterval = 1000;
@@ -164,11 +169,59 @@ void setup() {
     Serial.println("Server ready.");
   }
 
+  setupMDNS();
   setupADC();
+  setupOTA();
+}
+
+void setupMDNS()
+{
+    if (!MDNS.begin("power-meter")) {
+      Serial.println("Error setting up MDNS responder!");
+      while(1) {
+          delay(1000);
+      }
+  }
+  Serial.println("mDNS responder started");
+}
+
+void setupOTA()
+{
+
+
+  ArduinoOTA
+    .onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH)
+        type = "sketch";
+      else // U_SPIFFS
+        type = "filesystem";
+
+      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+      Serial.println("Start updating " + type);
+    })
+    .onEnd([]() {
+      Serial.println("\nEnd");
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+  ArduinoOTA.setHostname("power-meter");
+  ArduinoOTA.setPort(3232);
+  ArduinoOTA.begin();
 }
 
 
 void loop() {
+  ArduinoOTA.handle();
   // This call will let the server do its work
   secureServer.loop();
   long elapsed = millis() - (long)lastRead;

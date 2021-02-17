@@ -55,6 +55,7 @@
                     },
                     axisY:{
                         valueFormatString: "0.00", //try properties here
+                        viewportMinimum: 0
                     },
                     data: [{
                         type: "line",
@@ -116,7 +117,7 @@
                         powerField.innerText = (responseJSON.power).toFixed(2);
                         costField.innerText = (responseJSON.energy/(3600*1000)*priceVal.value).toFixed(2);
                         slopeVal.value = responseJSON.slope;
-                        energyConsumptionField.innerText = (responseJSON.energy/(3600*1000)).toFixed(2);
+                        energyConsumptionField.innerText = (responseJSON.energy/(3600)).toFixed(2);
                         
                     }
                 }
