@@ -1,7 +1,7 @@
 <!DOCTYPE html> 
 <html>
     <head>
-
+        <script src="https://canvasjs.com/assets/script/canvasjs.min.js"></script>
         <script>
             const sleep = (milliseconds) => {
                 return new Promise(resolve => setTimeout(resolve, milliseconds))
@@ -9,10 +9,21 @@
             const catchError = function(e){
             }
 
-            
+            let numReadings = 60;
 
             var init = async function(){
                 const powerField = document.getElementById("power");
+                const energyConsumptionField = document.getElementById("energy");
+                const costField = document.getElementById("cost");
+                const zeroBtn = document.getElementById("zeroBtn");
+                //var slopeSlider = document.getElementById("slope");
+                const slopeVal = document.getElementById("slopeVal");
+                const priceVal = document.getElementById("price");
+                const readingsVal = document.getElementById("readingsVal");
+                const updateBtn = document.getElementById("updateBtn");
+
+                var count = 0;
+                /*
                 while(true){
                     
                     let response = await fetch('/api/measurePower').catch(catchError);
@@ -23,12 +34,114 @@
 
                     }
                     await sleep(500);
+                }*/
+                
+                this.ws = new WebSocket("wss://" + document.location.host + "/live");
+                this.ws.onmessage = function(e){
+                    values = e.data.toString().split('\n');
+                    
+                    if(values && values.length>0){
+                        values.pop();
+                        values = values.map((v,i)=>{ return {y:parseFloat(v),x:count++}});
+                        powerField.innerText = values[values.length-1].y.toFixed(2);
+                        addData(values);
+                    }
                 }
+
+                var dps = []; // dataPoints
+                var chart = new CanvasJS.Chart("chartContainer", {
+                    title :{
+                        text: "Power"
+                    },
+                    axisY:{
+                        valueFormatString: "0.00", //try properties here
+                    },
+                    data: [{
+                        type: "line",
+                        dataPoints: dps
+                    }]
+                });
+
+                var addData = function(data) {
+                    dps.push(...data);
+                    if(dps.length>numReadings){
+                        dps.splice(0,dps.length-numReadings);
+                    }
+                    console.log(dps.length);
+
+                    chart.render();
+                }
+                
+
+                
+
+                zeroBtn.addEventListener('click',async ()=>{
+                    let response = await fetch('/api/zero').catch(catchError);
+                    if (response.ok){
+                        
+
+                    }
+                    
+                });
+
+                
+
+                slopeVal.addEventListener('input',async()=>{
+                    var url = new URL('/api/slope', document.location);
+                    //url.searchParams.append('slope',slopeVal.value);
+
+                    let response = await fetch(url,{
+                        method:'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({slope:slopeVal.value})
+                    }).catch(catchError);
+                    if (response && response.ok){
+                        
+
+                    }
+                });
+
+                readingsVal.addEventListener('input',()=>{
+                    numReadings = readingsVal.value;
+                });
+                readingsVal.value = numReadings;
+
+                var getInfo = async function(){
+                    let response = await fetch('/api/measurePower').catch(catchError);
+                    if (response.ok){
+                        let responseJSON = await response.json().catch(catchError);
+                        console.log(responseJSON);
+                        powerField.innerText = (responseJSON.power).toFixed(2);
+                        costField.innerText = (responseJSON.energy/(3600*1000)*priceVal.value).toFixed(2);
+                        slopeVal.value = responseJSON.slope;
+                        energyConsumptionField.innerText = (responseJSON.energy/(3600*1000)).toFixed(2);
+                        
+                    }
+                }
+                updateBtn.addEventListener('click',getInfo);
+
+                getInfo();
+                //setInterval(()=>{ addData([{y:Math.random()*1000,x:count++}]) },500);
             }
             window.addEventListener("load",init);
         </script>
         <body>
-            Power <span id="power">..</span>W
+            <div>Power:<span id="power"></span>W</div>
+            <div>Energy Consumption:<span id="energy"></span>Wh<div>
+            <div>Cost:&pound;<span id="cost"></span><div></div>
+            <div id="chartContainer" style="height: 400px; width:100%;"></div>
+            <div>
+                <div>calibration</div>
+                <button id="zeroBtn">zero readings</button><br/>
+                <button id="updateBtn">update</button><br/>
+                
+                <label>slope</label> <input id="slopeVal" value="0" type="number" min="0" max="20"></input><br/>
+                <label>readings</label> <input id="readingsVal" value="0" type="number" min="10" max="3600" step></input><br/>
+                <label>price per kilo watt hour</label> <input id="price" value="0.1437" type="number"></input>
+
+            </div>
         </body>
     </head>
 </html>

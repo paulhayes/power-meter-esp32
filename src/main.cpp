@@ -20,6 +20,7 @@
 #define DIR_PUBLIC "/public"
 
 #include <Arduino.h>
+//#include <ArduinoJson.h>
 #include <ArduinoJson.h>
 #include "creds.h"
 // Include certificate data (see note above)
@@ -38,9 +39,15 @@
 #include <HTTPRequest.hpp>
 #include <HTTPResponse.hpp>
 #include <SPIFFS.h>
+#include <WebsocketHandler.hpp>
+#include <CircularBuffer.h>
+#include <sstream>
+#include <string.h>
+#include <math.h>
 
 #include "measure.h"
 
+#define MAX_CLIENTS 4
 
 // The HTTPS Server comes in a separate namespace. For easier use, include it here.
 using namespace httpsserver;
@@ -73,8 +80,35 @@ void handleRoot(HTTPRequest * req, HTTPResponse * res);
 void handleFavicon(HTTPRequest * req, HTTPResponse * res);
 void handle404(HTTPRequest * req, HTTPResponse * res);
 void handlePowerMeterRequest(HTTPRequest * req, HTTPResponse * res);
+void handleZeroRequest(HTTPRequest * req, HTTPResponse * res);
 void handleSPIFFS(HTTPRequest * req, HTTPResponse * res);
+void handlePowerSlopeRequest(HTTPRequest * req, HTTPResponse * res);
 void initSPIFFS();
+
+CircularBuffer<double, 60> buffer;
+const int adcReadInterval = 1000;
+long unsigned lastRead = 0;
+double power = 0;
+double energyConsumption = 0;
+extern double rawPower;
+int sendAllTo = -1;
+extern double ampsPerVolt;
+
+// As websockets are more complex, they need a custom class that is derived from WebsocketHandler
+class ClientHandler : public WebsocketHandler {
+public:
+  // This method is called by the webserver to instantiate a new handler for each
+  // client that connects to the websocket endpoint
+  static WebsocketHandler* create();
+
+  // This method is called when a message arrives
+  void onMessage(WebsocketInputStreambuf * input);
+
+  // Handler function on connection close
+  void onClose();
+};
+
+ClientHandler* activeClients[MAX_CLIENTS];
 
 void setup() {
   // For logging
@@ -94,13 +128,22 @@ void setup() {
   // The ResourceNode links URL and HTTP method to a handler function
   ResourceNode * nodeRoot    = new ResourceNode("/", "GET", &handleRoot);
   ResourceNode * nodeFavicon = new ResourceNode("/favicon.ico", "GET", &handleFavicon);
-  ResourceNode * node404     = new ResourceNode("", "GET", &handle404);
+  //ResourceNode * node404     = new ResourceNode("", "GET", &handle404);
   
   // Add a handler that serves the current system uptime at GET /api/uptime
   ResourceNode * powerMeterRequestNode = new ResourceNode("/api/measurePower", "GET", &handlePowerMeterRequest);
   secureServer.registerNode(powerMeterRequestNode);
 
+  ResourceNode * powerSlopeNode = new ResourceNode("/api/slope", "PUT", &handlePowerSlopeRequest);
+  secureServer.registerNode(powerSlopeNode);
 
+  ResourceNode * handleZeroRequestNode = new ResourceNode("/api/zero", "GET", &handleZeroRequest);
+  secureServer.registerNode(handleZeroRequestNode);
+
+  for(int i = 0; i < MAX_CLIENTS; i++) activeClients[i] = nullptr;
+  WebsocketNode * clientConnectionNode = new WebsocketNode("/live", &ClientHandler::create);
+  // Adding the node to the server works in the same way as for all other nodes
+  secureServer.registerNode(clientConnectionNode);
 
   // Add the root node to the server
   secureServer.registerNode(nodeRoot);
@@ -123,11 +166,47 @@ void setup() {
 
   setupADC();
 }
-double power = 0;
+
+
 void loop() {
   // This call will let the server do its work
   secureServer.loop();
-  power = readADC();
+  long elapsed = millis() - (long)lastRead;
+  double delta = elapsed / 1000.0;
+  if(elapsed>=adcReadInterval){
+    power = readPower();
+    lastRead = millis();
+    buffer.push(power);
+    energyConsumption += delta * power;
+    
+    for(int i = 0; i < MAX_CLIENTS; i++) {
+
+      if (activeClients[i] != nullptr) {
+        
+        if(i==sendAllTo){
+          std::ostringstream msgStream;
+          for(decltype(buffer)::index_t i=max(buffer.size()-60,0);i<buffer.size();i++){          
+            msgStream << buffer[i];
+            msgStream << "\n";
+            //activeClients[i]->send(msgStream.str(),WebsocketHandler::SEND_TYPE_TEXT);        
+            
+          }
+          activeClients[i]->send(msgStream.str(),WebsocketHandler::SEND_TYPE_TEXT);
+          msgStream.clear();   
+          sendAllTo = -1;
+        }
+        else {
+          std::ostringstream msgStream;
+          msgStream << power;
+          msgStream << "\n";
+          activeClients[i]->send(msgStream.str(), WebsocketHandler::SEND_TYPE_TEXT);
+          msgStream.clear();   
+        }
+      
+      }
+      
+    }
+  }
   // Other code would go here...
   delay(1);
 }
@@ -209,19 +288,35 @@ void handle404(HTTPRequest * req, HTTPResponse * res) {
  */
 void handlePowerMeterRequest(HTTPRequest * req, HTTPResponse * res) {
   // Create a buffer of size 1 (pretty simple, we have just one key here)
-  StaticJsonBuffer<JSON_OBJECT_SIZE(2)> jsonBuffer;
-  // Create an object at the root
-  JsonObject& obj = jsonBuffer.createObject();
+  StaticJsonDocument<JSON_OBJECT_SIZE(4)> obj;
   // Set the uptime key to the uptime in seconds
   obj["uptime"] = millis()/1000;
   obj["power"] = power;
+  obj["slope"] = ampsPerVolt;
+  obj["energy"] = energyConsumption;
   // Set the content type of the response
   res->setHeader("Content-Type", "application/json");
   // As HTTPResponse implements the Print interface, this works fine. Just remember
   // to use *, as we only have a pointer to the HTTPResponse here:
-  obj.printTo(*res);
+  serializeJson(obj, *res);
 }
 
+void handlePowerSlopeRequest(HTTPRequest * req, HTTPResponse * res){
+  char buffer[200];
+  int len = req->readChars(buffer,200);
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, buffer, len);
+  ampsPerVolt = doc["slope"];
+}
+
+void handleZeroRequest(HTTPRequest * req, HTTPResponse * res) {
+  StaticJsonDocument<JSON_OBJECT_SIZE(1)>obj;
+
+  obj["status"] = "okay";
+  res->setHeader("Content-Type", "application/json");
+  serializeJson(obj, *res);
+  calibratePowerOffset();
+}
 
 void handleSPIFFS(HTTPRequest * req, HTTPResponse * res) {
 	
@@ -273,5 +368,34 @@ void handleSPIFFS(HTTPRequest * req, HTTPResponse * res) {
     res->setStatusCode(405);
     res->setStatusText("Method not allowed");
     res->println("405 Method not allowed");
+  }
+}
+
+void ClientHandler::onMessage(WebsocketInputStreambuf * inbuf) {
+  
+}
+
+WebsocketHandler * ClientHandler::create() {
+  Serial.println("Client Connecting");
+  ClientHandler * handler = new ClientHandler();
+  for(int i = 0; i < MAX_CLIENTS; i++) {
+    if (activeClients[i] == nullptr) {
+      activeClients[i] = handler; 
+      sendAllTo = i;     
+      break;
+    }
+  }
+  
+
+  
+  return handler;
+}
+
+// When the websocket is closing, we remove the client from the array
+void ClientHandler::onClose() {
+  for(int i = 0; i < MAX_CLIENTS; i++) {
+    if (activeClients[i] == this) {
+      activeClients[i] = nullptr;
+    }
   }
 }
