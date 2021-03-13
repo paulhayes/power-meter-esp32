@@ -121,7 +121,9 @@ void setup() {
   initSPIFFS();
   // Connect to WiFi
   Serial.println("Setting up WiFi");
+  WiFi.setHostname("power-meter");
   WiFi.begin(WIFI_SSID, WIFI_PSK);
+  
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(500);
