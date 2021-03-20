@@ -47,8 +47,8 @@
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
+//#include <cbor.h>
 #include "time.h"
-#include "cbor.h"
 #include "measure.h"
 
 #define MAX_CLIENTS 4
@@ -91,16 +91,16 @@ void initSPIFFS();
 void setupOTA();
 void setupMDNS();
 void printLocalTime();
-long secondsElapsed(long oldTime);
-double energyTotal(CircularBuffer<double> *powerBuffer, int samples, double delayBetweenSamples)
-double avgPower(CircularBuffer<double> *powerBuffer, int samples, double delayBetweenSamples)
+long secondsElapsed(long oldTime, time_t t);
+double energyTotal(CircularBuffer<double,60> *powerBuffer, int samples, double delayBetweenSamples);
+double avgPower(CircularBuffer<double,60> *powerBuffer, int samples, double delayBetweenSamples);
 
 
 const char* ntpServer = "pool.ntp.org";
 
 CircularBuffer<double, 60> secondBuffer;
 CircularBuffer<double, 60> minuteBuffer;
-CircularBuffer<double, 24*4> hourBuffer;
+CircularBuffer<double, 60> hourBuffer;
 CircularBuffer<double, 60> dayBuffer;
 long lastMinuteTime;
 long lastHourTime;
@@ -247,24 +247,24 @@ void loop() {
   long elapsed = millis() - (long)lastRead;
   double delta = elapsed / 1000.0;
   if(elapsed>=adcReadInterval){
-    double lastRead = power;
+    double lastPower = power;
     power = readPower();
     lastRead = millis();
     secondBuffer.push(power);
 
     time_t currentTime;
     time(&currentTime);
-    if(secondsElapsed(lastMinuteTime)>60 && secondBuffer.size()>60){      
-      minuteBuffer.push( avgPower(secondsBuffer,60,adcReadInterval/1000.0) );      
-      lastMinuteTime = (long)time_t;     
+    if(secondsElapsed(lastMinuteTime,currentTime)>60 && secondBuffer.size()>60){      
+      minuteBuffer.push( avgPower(&secondBuffer,60,adcReadInterval/1000.0) );      
+      lastMinuteTime = currentTime;     
     }
-    if(secondsElapsed(lastHourTime)>60*60 && minuteBuffer.size()>60){
-      hourBuffer.push( avgPower(minuteBuffer,60,60L*adcReadInterval/1000.0) );
-      lastHourTime = (long)time_t;     
+    if(secondsElapsed(lastHourTime,currentTime)>60*60 && minuteBuffer.size()>60){
+      hourBuffer.push( avgPower(&minuteBuffer,60,60L*adcReadInterval/1000.0) );
+      lastHourTime = (long)currentTime;     
     }
-    if(secondsElapsed(hourBuffer)>24*60*60 && hourBuffer.size()>24){
-      dayBuffer.push( avgPower(minuteBuffer,60,60L*60*adcReadInterval/1000.0) );
-      lastDayTime = (long)time_t;
+    if(secondsElapsed(lastDayTime,currentTime)>24*60*60 && hourBuffer.size()>24){
+      dayBuffer.push( avgPower(&minuteBuffer,60,60L*60*adcReadInterval/1000.0) );
+      lastDayTime = (long)currentTime;
     }
     energyConsumption += delta * 0.5 * ( power + lastPower );
   
@@ -275,7 +275,7 @@ void loop() {
         
         if(i==sendAllTo){
           std::ostringstream msgStream;
-          for(decltype(secondBuffer)::index_t j=max(buffer.size()-60,0);j<secondBuffer.size();j++){          
+          for(decltype(secondBuffer)::index_t j=max(secondBuffer.size()-60,0);j<secondBuffer.size();j++){          
             msgStream << secondBuffer[j];
             msgStream << "\n";
             //activeClients[i]->send(msgStream.str(),WebsocketHandler::SEND_TYPE_TEXT);        
@@ -502,25 +502,21 @@ void printLocalTime()
     Serial.println("Failed to obtain time");
     return;
   }
-
-
-
-  clock_
   
   Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
 }
 
-double energyTotal(CircularBuffer<double> *powerBuffer, int samples, double delayBetweenSamples)
+double energyTotal(CircularBuffer<double,60> *powerBuffer, int samples, double delayBetweenSamples)
 {
   int len = powerBuffer->size();
-  double sum;
+  double sum = 0;
   for(int i=1;i<len;i++){
-    sum += delayBetweenSamples * 0.5 * (powerBuffer[i-1] + powerBuffer[i]);    
+    sum += delayBetweenSamples * 0.5 * ((*powerBuffer)[i-1] + (*powerBuffer)[i]);    
   }
   return sum;
 }
 
-double avgPower(CircularBuffer<double> *powerBuffer, int samples, double delayBetweenSamples)
+double avgPower(CircularBuffer<double,60> *powerBuffer, int samples, double delayBetweenSamples)
 {
   return energyTotal(powerBuffer,samples,delayBetweenSamples)/(samples*delayBetweenSamples);
 }
