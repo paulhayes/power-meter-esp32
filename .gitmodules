@@ -1,0 +1,3 @@
+[submodule "lib/tinycbor"]
+	path = lib/tinycbor
+	url = git@github.com:intel/tinycbor.git
