@@ -87,6 +87,7 @@ void handlePowerMeterRequest(HTTPRequest * req, HTTPResponse * res);
 void handleZeroRequest(HTTPRequest * req, HTTPResponse * res);
 void handleSPIFFS(HTTPRequest * req, HTTPResponse * res);
 void handlePowerSlopeRequest(HTTPRequest * req, HTTPResponse * res);
+void handlePowerHistory(HTTPRequest * request, HTTPResponse * response);
 void initSPIFFS();
 void setupOTA();
 void setupMDNS();
@@ -158,6 +159,10 @@ void setup() {
   // Add a handler that serves the current system uptime at GET /api/uptime
   ResourceNode * powerMeterRequestNode = new ResourceNode("/api/measurePower", "GET", &handlePowerMeterRequest);
   secureServer.registerNode(powerMeterRequestNode);
+
+  ResourceNode * powerHistoryRequestNode = new ResourceNode("/api/powerHistory", "GET", &handlePowerHistory);
+  secureServer.registerNode(powerHistoryRequestNode);
+
 
   ResourceNode * powerSlopeNode = new ResourceNode("/api/slope", "PUT", &handlePowerSlopeRequest);
   secureServer.registerNode(powerSlopeNode);
@@ -371,6 +376,19 @@ void handle404(HTTPRequest * req, HTTPResponse * res) {
   res->println("</html>");
 }
 
+
+void handlePowerHistory(HTTPRequest * request, HTTPResponse * response){
+  char buffer[200];
+  int len = request->readChars(buffer,200);
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, buffer, len);
+  //0 - seconds
+  //1 - minutes
+  //2 - hours
+  //3 - days
+  int scale = doc["scale"];
+  
+}
 
 /**
  * This function will return the uptime in seconds as JSON object:
