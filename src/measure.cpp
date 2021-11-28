@@ -3,7 +3,11 @@
 #include <Arduino.h>
 #include <math.h>
 #include <EEPROM.h>
+#include <Adafruit_ADS1X15.h>
+
 #define ads1110 0x48
+
+Adafruit_ADS1115 adc;
 
 const int offsetAddress = 10;
 double ampsPerVolt = 7.706108759;
@@ -14,6 +18,7 @@ double lastAvgReading;
 
 void setupADC()
 {
+  //adc.begin();
   Wire.begin();
   EEPROM.begin(512);
   if( EEPROM.readByte(offsetAddress) != 0xFF ){

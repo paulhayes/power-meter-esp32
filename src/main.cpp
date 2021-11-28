@@ -16,7 +16,7 @@
 
 // TODO: Configure your WiFi here
 //#define byte uint8_t
-
+#define SPI_INTERFACES_COUNT 0
 #define DIR_PUBLIC "/public"
 
 #include <Arduino.h>
@@ -47,6 +47,7 @@
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
+
 
 #include "measure.h"
 
@@ -115,21 +116,13 @@ public:
 
 ClientHandler* activeClients[MAX_CLIENTS];
 
+void initWifi();
+
 void setup() {
   // For logging
   Serial.begin(115200);
   initSPIFFS();
-  // Connect to WiFi
-  Serial.println("Setting up WiFi");
-  WiFi.setHostname("power-meter");
-  WiFi.begin(WIFI_SSID, WIFI_PSK);
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.print("Connected. IP=");
-  Serial.println(WiFi.localIP());
+  initWifi();
 
   // For every resource available on the server, we need to create a ResourceNode
   // The ResourceNode links URL and HTTP method to a handler function
@@ -286,6 +279,21 @@ void initSPIFFS()
     Serial.println("SPIFFS has been formated.");
   }
   Serial.println("SPIFFS has been mounted.");
+}
+
+void initWifi()
+{
+  // Connect to WiFi
+  Serial.println("Setting up WiFi");
+  WiFi.setHostname("power-meter");
+  WiFi.begin(WIFI_SSID, WIFI_PSK);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.print("Connected. IP=");
+  Serial.println(WiFi.localIP());
 }
 
 void handleRoot(HTTPRequest * req, HTTPResponse * res) {
