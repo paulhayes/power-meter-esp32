@@ -91,8 +91,9 @@ void initSPIFFS();
 void setupOTA();
 void setupMDNS();
 
-CircularBuffer<double, 60> buffer;
+CircularBuffer<double, 600> buffer;
 const int adcReadInterval = 1000;
+const int maxReadingsToSend = 60;
 long unsigned lastRead = 0;
 double power = 0;
 double energyConsumption = 0;
@@ -182,21 +183,25 @@ void setupMDNS()
 
 void setupOTA()
 {
-
+  Serial.println("Setting up OTA");
 
   ArduinoOTA
     .onStart([]() {
       String type;
       if (ArduinoOTA.getCommand() == U_FLASH)
         type = "sketch";
-      else // U_SPIFFS
+      else if((ArduinoOTA.getCommand() == U_SPIFFS){ // U_SPIFFS
+        SPIFFS.end();
         type = "filesystem";
-
+      }
       // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
       Serial.println("Start updating " + type);
     })
     .onEnd([]() {
       Serial.println("\nEnd");
+      if(ArduinoOTA.getCommand()==U_SPIFFS){
+        SPIFFS.begin();
+      }
     })
     .onProgress([](unsigned int progress, unsigned int total) {
       Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
@@ -221,10 +226,26 @@ void loop() {
   secureServer.loop();
   long elapsed = millis() - (long)lastRead;
   double delta = elapsed / 1000.0;
+
+    
   if(elapsed>=adcReadInterval){
-    power = readPower();
+    /*int16_t sample = readSample();
+    Serial.print("ADC: ");
+    Serial.println( sample );
+    buffer.push(sample);
     lastRead = millis();
+    return*/
+    /*for(int i=0;i<maxReadingsToSend;i++){
+      requestReading();
+      while(!readingReady()){
+        yield();
+      }
+      power = readSample();
+      buffer.push(power);
+    }*/
+    power = readPower(60);
     buffer.push(power);
+    lastRead = millis();
     energyConsumption += delta * power;
     
     for(int i = 0; i < MAX_CLIENTS; i++) {
@@ -233,7 +254,7 @@ void loop() {
         
         if(i==sendAllTo){
           std::ostringstream msgStream;
-          for(decltype(buffer)::index_t i=max(buffer.size()-60,0);i<buffer.size();i++){          
+          for(decltype(buffer)::index_t i=max(buffer.size()-maxReadingsToSend,0);i<buffer.size();i++){          
             msgStream << buffer[i];
             msgStream << "\n";
             //activeClients[i]->send(msgStream.str(),WebsocketHandler::SEND_TYPE_TEXT);        

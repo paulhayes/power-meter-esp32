@@ -1,4 +1,5 @@
-var gaugeHum = new RadialGauge({
+/*
+var gaugePower = new RadialGauge({
     renderTo: 'power-gauge',
     width: 300,
     height: 300,
@@ -41,3 +42,45 @@ var gaugeHum = new RadialGauge({
     animationDuration: 1500,
     animationRule: "linear"
   }).draw();
+*/
+var powerGauge = new RadialGauge({    
+    renderTo: 'power-gauge',
+    units: "Power (W)",
+    minValue: 0,
+    maxValue: 6000,
+    majorTicks: [
+        "0",
+        "500",
+        "1500",
+        "2000",
+        "2500",
+        "3000",
+        "3500",
+        "4000",
+        "4500",
+        "5000",
+        "5500",
+        "6000"
+    ]
+}).draw();
+
+  var ws = new WebSocket("wss://" + document.location.host + "/live");
+  ws.onmessage = function(e){
+    values = e.data.toString().split('\n');
+    if(values.length>0){
+        values.pop();
+        values = values.map((v,i)=>parseFloat(v));
+        //values = values.map((v,i)=>{ return {y:parseFloat(v),x:count++}});
+        //powerField.innerText = values[values.length-1].y.toFixed(2);
+        //addData(values);
+        var val = values.shift();
+        console.log(val);
+        powerGauge.value = val;
+        //gaugePower.update();
+
+        if(window.ondata){
+            window.ondata(values);
+        }
+    }
+
+}
